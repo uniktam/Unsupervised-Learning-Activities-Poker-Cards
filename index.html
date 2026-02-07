@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>分類大師：極速版</title>
+    <style>
+        /* --- 基礎設定 --- */
+        body {
+            font-family: 'PingFang HK', 'Helvetica Neue', sans-serif;
+            background-color: #f2f2f7;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            /* 關鍵優化：禁止所有默認觸控行為 (如滾動、縮放) */
+            touch-action: none; 
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        /* --- 頂部導航欄 --- */
+        header {
+            background: white;
+            padding: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex-shrink: 0; /* 防止被擠壓 */
+        }
+
+        .tab-container {
+            display: flex;
+            background-color: #e5e5ea;
+            border-radius: 10px;
+            padding: 3px;
+            width: 98%;
+            max-width: 600px;
+        }
+
+        .tab-btn {
+            flex: 1;
+            border: none;
+            background: transparent;
+            padding: 8px 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: #8e8e93;
+            cursor: pointer;
+            border-radius: 8px;
+        }
+
+        .tab-btn.active {
+            background-color: white;
+            color: #007aff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .tab-btn.review-mode { color: #ff9500; }
+        .tab-btn.review-mode.active { background-color: #ff9500; color: white; }
+
+        #instruction-text {
+            margin-top: 5px;
+            font-size: 12px;
+            color: #666;
+            height: 16px;
+        }
+
+        /* --- 遊戲主舞台 --- */
+        #game-container {
+            flex: 1;
+            position: relative;
+            background-color: #35654d;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* --- 分類區 --- */
+        #zones-container {
+            height: 55%;
+            display: flex;
+            justify-content: space-around;
+            align-items: flex-start;
+            padding-top: 15px;
+            box-sizing: border-box;
+            background: rgba(0,0,0,0.05);
+        }
+
+        .drop-zone {
+            width: 23%;
+            height: 90%;
+            border: 2px dashed rgba(255,255,255,0.3);
+            border-radius: 10px;
+            position: relative;
+            background-color: rgba(255,255,255,0.05);
+            transition: background-color 0.2s; /* 縮短過渡時間 */
+        }
+        
+        .drop-zone::after {
+            content: attr(data-label);
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 30px;
+            color: rgba(255,255,255,0.15);
+            font-weight: bold;
+            pointer-events: none;
+        }
+
+        .drop-zone.hovered {
+            background-color: rgba(255,255,255,0.3);
+            border-color: #fff;
+        }
+
+        /* --- 混亂區 --- */
+        #chaos-area {
+            height: 45%;
+            position: relative;
+            width: 100%;
+            border-top: 1px solid rgba(0,0,0,0.1);
+        }
+
+        /* --- 卡牌樣式 --- */
+        .card {
+            width: 70px; /* 手機上稍微調小一點 */
+            height: 96px;
+            position: absolute;
+            background-color: white;
+            border-radius: 6px;
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            cursor: grab;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            font-size: 12px;
+            color: transparent; 
+            font-weight: bold;
+            /* 關鍵：開啟硬體加速 */
+            will-change: transform; 
+            transform: translate3d(0,0,0);
+        }
+
+        .card.dragging {
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            z-index: 9999 !important;
+            transition: none !important; /* 拖曳時絕對不能有 transition */
+        }
+
+        /* 平滑移動動畫 */
+        .card.smooth-move {
+            transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+        
+        /* 鎖定模式 */
+        .locked .card { pointer-events: none; }
+
+        /* --- 底部按鈕 --- */
+        footer {
+            background: white;
+            padding: 10px;
+            display: flex;
+            justify-content: center;
+            flex-shrink: 0;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            z-index: 100;
+        }
+
+        button.action-btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            background-color: #ff3b30; color: white;
+        }
+        button.action-btn:active { transform: scale(0.95); }
+
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="tab-container">
+        <button class="tab-btn active" onclick="switchMode(1)">方法 1</button>
+        <button class="tab-btn" onclick="switchMode(2)">方法 2</button>
+        <button class="tab-btn" onclick="switchMode(3)">方法 3</button>
+        <button class="tab-btn review-mode" onclick="switchMode(4)">🎤 展示</button>
+    </div>
+    <div id="instruction-text">正在進行：分類方法 1</div>
+</header>
+
+<div id="game-container">
+    <div id="zones-container">
+        <div class="drop-zone" id="zone-0" data-label="A"></div>
+        <div class="drop-zone" id="zone-1" data-label="B"></div>
+        <div class="drop-zone" id="zone-2" data-label="C"></div>
+        <div class="drop-zone" id="zone-3" data-label="D"></div>
+    </div>
+    <div id="chaos-area"></div>
+</div>
+
+<footer>
+    <button class="action-btn" id="reset-btn" onclick="resetCurrentMode()">🔄 重置本頁</button>
+    <div id="presentation-controls" style="display:none; color:#333; font-weight:bold; font-size:14px;">
+        點擊上方分頁切換展示
+    </div>
+</footer>
+
+<script>
+    /* --- 1. 數據與狀態 --- */
+    const cardData = [
+        { id: 'c9',  suit: 'c', number: 9,  name: '梅花9' },
+        { id: 'ca',  suit: 'c', number: 1,  name: '梅花A' },
+        { id: 'c8',  suit: 'c', number: 8,  name: '梅花8' },
+        { id: 's9',  suit: 's', number: 9,  name: '黑桃9' },
+        { id: 's10', suit: 's', number: 10, name: '黑桃10' },
+        { id: 's8',  suit: 's', number: 8,  name: '黑桃8' },
+        { id: 'da',  suit: 'd', number: 1,  name: '方塊A' },
+        { id: 'd9',  suit: 'd', number: 9,  name: '方塊9' },
+        { id: 'd10', suit: 'd', number: 10, name: '方塊10' },
+        { id: 'd8',  suit: 'd', number: 8,  name: '方塊8' },
+        { id: 'h9',  suit: 'h', number: 9,  name: '紅心9' },
+        { id: 'h10', suit: 'h', number: 10, name: '紅心10' }
+    ];
+
+    const chaosArea = document.getElementById('chaos-area');
+    const zones = document.querySelectorAll('.drop-zone');
+    const instructionText = document.getElementById('instruction-text');
+    let cardsElements = [];
+    let currentMode = 1; 
+
+    // 存儲結構: { 1: { 'c9': 'zone-0', ... }, ... }
+    let savedStates = { 1: {}, 2: {}, 3: {} };
+    // 存儲具體坐標 (x, y, rotation)，確保切換時位置精準
+    // { 1: { 'c9': {x:10, y:20, r:5}, ... }, ... }
+    let savedPositions = { 1: {}, 2: {}, 3: {} };
+
+    let hasInitialized = { 1: false, 2: false, 3: false };
+
+    /* --- 2. 初始化 --- */
+    function init() {
+        chaosArea.innerHTML = '';
+        cardsElements = [];
+
+        cardData.forEach((data) => {
+            const el = document.createElement('div');
+            el.classList.add('card', 'smooth-move');
+            el.id = data.id;
+            
+            const imgPath = `images/${data.suit}_${data.number}.png`;
+            el.style.backgroundImage = `url('${imgPath}')`;
+            el.innerText = data.name;
+            
+            // 圖片失敗處理
+            const img = new Image();
+            img.src = imgPath;
+            img.onerror = () => {
+                el.style.backgroundImage = 'none';
+                el.style.backgroundColor = '#fff';
+                el.style.color = '#333';
+                el.style.border = '1px solid #999';
+            };
+
+            // 初始化數據
+            el.dataset.zone = "null"; 
+            
+            // 初始變換 (使用 transform 代替 top/left)
+            el.style.transform = `translate3d(0px, 0px, 0) rotate(0deg)`;
+
+            chaosArea.appendChild(el);
+            cardsElements.push(el);
+            
+            // 綁定優化後的拖曳事件
+            addOptimizedDrag(el);
+        });
+
+        resetCurrentMode(); 
+        hasInitialized[1] = true;
+    }
+
+    /* --- 3. 模式切換 --- */
+    function switchMode(newMode) {
+        if (currentMode === newMode) return;
+
+        if (currentMode !== 4) saveState(currentMode);
+
+        document.querySelectorAll('.tab-btn').forEach((btn, index) => {
+            btn.classList.remove('active');
+            if (index + 1 === newMode) btn.classList.add('active');
+        });
+
+        currentMode = newMode;
+        const container = document.getElementById('game-container');
+        const resetBtn = document.getElementById('reset-btn');
+        const presentationCtrl = document.getElementById('presentation-controls');
+
+        if (newMode === 4) {
+            instructionText.innerText = "🎤 展示模式：切換上方按鈕展示你的思路";
+            container.classList.add('locked');
+            resetBtn.style.display = 'none';
+            presentationCtrl.style.display = 'block';
+            loadState(1); // 預設展示方法1
+        } else {
+            instructionText.innerText = `正在進行：分類方法 ${newMode}`;
+            container.classList.remove('locked');
+            resetBtn.style.display = 'block';
+            presentationCtrl.style.display = 'none';
+
+            if (hasInitialized[newMode]) {
+                loadState(newMode);
+            } else {
+                resetCurrentMode();
+                hasInitialized[newMode] = true;
+            }
+        }
+    }
+
+    function saveState(mode) {
+        // 保存區域歸屬和具體位置 (translate X, Y)
+        savedPositions[mode] = {};
+        cardsElements.forEach(el => {
+            savedStates[mode][el.id] = el.dataset.zone;
+            
+            // 解析當前的 transform 矩陣有點複雜，
+            // 為了簡單，我們依賴 refreshBoardLayout 重新計算位置，
+            // 只需要存儲 zone 即可。如果需要精確記憶手動微調的位置，邏輯會變得更重。
+            // 為了流暢度，這裡採取「根據 Zone 重新排列」的策略。
+        });
+    }
+
+    function loadState(mode) {
+        const state = savedStates[mode];
+        if (!state) return;
+
+        cardsElements.forEach(el => {
+            const zone = state[el.id];
+            el.dataset.zone = zone ? zone : "null";
+        });
+        refreshBoardLayout();
+    }
+
+    /* --- 4. 佈局計算 (使用 translate3d) --- */
+    function refreshBoardLayout() {
+        const areaW = chaosArea.offsetWidth - 70;
+        const areaH = chaosArea.offsetHeight - 96;
+
+        // 1. 處理未分類卡牌 (隨機位置)
+        // 為了避免每次切換回來亂跑，可以使用偽隨機，但這裡簡單處理
+        cardsElements.forEach(el => {
+            if (el.dataset.zone === "null") {
+                const rX = Math.random() * areaW;
+                const rY = Math.random() * areaH;
+                const rR = Math.random() * 30 - 15;
+                setTransform(el, rX, rY, rR);
+            }
+        });
+
+        // 2. 處理已分類卡牌 (整齊排列)
+        [0, 1, 2, 3].forEach(idx => arrangeZone(idx));
+    }
+
+    function arrangeZone(zoneIndex) {
+        const zone = zones[zoneIndex];
+        const zoneRect = zone.getBoundingClientRect();
+        const containerRect = chaosArea.getBoundingClientRect(); 
+
+        const cardsInZone = cardsElements.filter(c => c.dataset.zone == zoneIndex);
+        
+        const cardW = 70; // 配合 CSS
+        const xOffset = (zoneRect.width - cardW) / 2;
+        const startY = 10;
+        const yStep = 25; // 堆疊間距
+
+        cardsInZone.forEach((card, index) => {
+            // 計算相對於 chaos-area 的位置
+            const targetX = (zoneRect.left - containerRect.left) + xOffset;
+            const targetY = (zoneRect.top - containerRect.top) + startY + (index * yStep);
+            
+            setTransform(card, targetX, targetY, 0, 100 + index);
+        });
+    }
+
+    // 封裝變換函數，統一使用 GPU 加速
+    function setTransform(el, x, y, deg, zIndex = null) {
+        el.style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${deg}deg)`;
+        if (zIndex !== null) el.style.zIndex = zIndex;
+        // 儲存當前坐標供拖曳使用
+        el.dataset.x = x;
+        el.dataset.y = y;
+    }
+
+    function resetCurrentMode() {
+        cardsElements.forEach(el => el.dataset.zone = "null");
+        refreshBoardLayout();
+    }
+
+    /* --- 5. 優化的拖曳邏輯 (核心) --- */
+    function addOptimizedDrag(el) {
+        let startX = 0, startY = 0;
+        let initialCardX = 0, initialCardY = 0;
+        let isDragging = false;
+
+        // 觸控開始
+        const onStart = (e) => {
+            if (document.getElementById('game-container').classList.contains('locked')) return;
+
+            // 獲取觸控點
+            const point = e.touches ? e.touches[0] : e;
+            startX = point.clientX;
+            startY = point.clientY;
+
+            // 讀取當前卡牌位置 (從 dataset 或計算 style)
+            // 注意：因為我們用 translate3d，offsetTop/Left 永遠是 0 (如果 CSS 沒設 top/left)
+            // 所以必須依賴 dataset.x/y 記錄的狀態
+            initialCardX = parseFloat(el.dataset.x) || 0;
+            initialCardY = parseFloat(el.dataset.y) || 0;
+
+            isDragging = true;
+            
+            // 視覺效果
+            el.classList.remove('smooth-move'); // 關閉動畫以跟隨手指
+            el.classList.add('dragging');
+            el.style.zIndex = 9999;
+        };
+
+        // 觸控移動
+        const onMove = (e) => {
+            if (!isDragging) return;
+            // e.preventDefault() 由 touch-action: none 處理，這裡不需要調用，節省性能
+            
+            const point = e.touches ? e.touches[0] : e;
+            const deltaX = point.clientX - startX;
+            const deltaY = point.clientY - startY;
+
+            const newX = initialCardX + deltaX;
+            const newY = initialCardY + deltaY;
+
+            // 直接更新 GPU 變換
+            el.style.transform = `translate3d(${newX}px, ${newY}px, 0) scale(1.1)`;
+            
+            // 簡單的碰撞檢測 (Throttle 節流可以進一步優化，但在現代手機上這個簡單計算還好)
+            // 為了不卡頓，這裡不操作 DOM class，只計算
+        };
+
+        // 觸控結束
+        const onEnd = (e) => {
+            if (!isDragging) return;
+            isDragging = false;
+            
+            el.classList.remove('dragging');
+            el.classList.add('smooth-move'); // 開啟動畫以進行吸附
+
+            // 獲取最終手指位置來判斷落點 (需要用 changedTouches)
+            // 或者直接用最後一次 move 的位置。這裡我們用元素中心點判斷
+            const rect = el.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+
+            const oldZone = el.dataset.zone;
+            const newZone = getDroppedZoneIndex(centerX, centerY);
+
+            if (newZone !== null) {
+                el.dataset.zone = newZone;
+                arrangeZone(newZone); // 排列新家
+            } else {
+                el.dataset.zone = "null";
+                // 計算當前相對於容器的位置，避免跳回原點
+                // 由於我們一直更新的是 translate3d，現在需要把最後的位置"定"下來
+                // 或者簡單點：給個隨機旋轉，位置保持在最後放開的地方(如果不出界)
+                // 為了教學整潔，我們還是讓它稍微"吸附"在原地但擺正
+                
+                // 這裡需要反算相對於 chaosArea 的 x,y
+                const containerRect = chaosArea.getBoundingClientRect();
+                const relX = rect.left - containerRect.left;
+                const relY = rect.top - containerRect.top;
+                
+                // 更新 dataset
+                const rR = Math.random() * 20 - 10;
+                setTransform(el, relX, relY, rR, Math.floor(Math.random()*10));
+            }
+
+            // 如果離開了舊區域，舊區域重排
+            if (oldZone !== "null" && oldZone != newZone) {
+                arrangeZone(oldZone);
+            }
+            
+            // 清除高亮
+            zones.forEach(z => z.classList.remove('hovered'));
+        };
+
+        // 綁定事件
+        el.addEventListener('touchstart', onStart, { passive: false });
+        el.addEventListener('touchmove', onMove, { passive: false });
+        el.addEventListener('touchend', onEnd);
+        
+        // 兼容滑鼠
+        el.addEventListener('mousedown', onStart);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onEnd);
+    }
+
+    function getDroppedZoneIndex(x, y) {
+        let target = null;
+        zones.forEach((zone, index) => {
+            const r = zone.getBoundingClientRect();
+            if (x > r.left && x < r.right && y > r.top && y < r.bottom) {
+                target = index;
+                // 只有在 end 的時候才加樣式，避免移動時頻繁重繪
+                // 或者在 move 裡做，但要小心性能
+            }
+        });
+        return target;
+    }
+
+    window.onload = init;
+
+</script>
+
+</body>
+</html>
